@@ -7,7 +7,7 @@
 export const site = {
   title: "Gizi Cerdas",
   subtitle: "Lawan Anemia",
-  tagline: "Panduan santai soal anemia, Tablet Tambah Darah, dan makanan kaya zat besi. Baca pelan-pelan, sambil rebahan juga boleh.",
+  tagline: "Panduan singkat tentang anemia, Tablet Tambah Darah, dan makanan kaya zat besi untuk remaja.",
 };
 
 // Jenis blok:
