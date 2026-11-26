@@ -1,28 +1,45 @@
-# Pelan — Ezine Interaktif
+# Gizi Cerdas: Lawan Anemia — E-Zine Interaktif
 
-Majalah digital interaktif yang minimalis dan open source. Edisi 01: **Seni Melambat**.
+Media edukasi gizi berbentuk majalah digital interaktif untuk remaja, berisi materi tentang anemia, penyebab, tanda dan gejala, dampak, pencegahan, pentingnya Tablet Tambah Darah (TTD), cara minum TTD yang benar, serta makanan yang meningkatkan penyerapan zat besi. Dirancang mobile-first agar nyaman diakses lewat smartphone.
 
-Tanpa framework dan tanpa build step: cukup HTML, CSS, dan JavaScript. Hosting gratis di **Vercel**, database gratis di **Supabase**.
+Tanpa framework dan tanpa build step. Hosting gratis di **Vercel**, database gratis di **Supabase**.
 
 ## Fitur
 
-| Elemen | Isi |
+| Layar | Isi |
 |---|---|
-| Visual dinamis | Sampul parallax, animasi muncul saat digulir, tema terang/gelap |
-| Navigasi intuitif | Daftar isi (menu), titik navigasi samping, progress bar, pintasan `J`/`K`/`M`/`T` |
-| Multimedia | Galeri geser (swipe/drag/panah + lightbox), video player kustom, ruang dengar (suara hujan/ombak/angin dibangkitkan Web Audio API) |
-| Interaktif | Kalkulator waktu (infografis), kuis kepribadian + statistik pembaca, polling, tombol suka, bagikan |
+| **Navigasi menu** | Sampul, menu materi (grid), progres baca, pengingat minum TTD mingguan |
+| **Materi edukasi** | 8 materi dengan infografis, kartu mitos vs fakta, cek gejala, permainan pasangan makanan, tombol navigasi sebelumnya/selanjutnya, dan geser kiri/kanan |
+| **Video & informasi** | Daftar video edukasi lewat tautan |
+| **Kuis & evaluasi** | 10 soal pilihan ganda dengan umpan balik langsung, skor, dan pembahasan. Hasil disimpan ke Supabase (opsional dengan kode responden) |
 
 ## Struktur
 
 ```
-index.html          # semua konten edisi
-assets/style.css    # desain
-assets/app.js       # interaksi
-assets/db.js        # data: Supabase RPC + cadangan localStorage
+index.html          # kerangka aplikasi (top bar + tab bar)
+assets/content.js   # SEMUA KONTEN: materi, video, soal kuis, sumber
+assets/app.js       # router & interaksi
+assets/db.js        # penyimpanan hasil kuis (Supabase + cadangan lokal)
 assets/config.js    # URL & publishable key Supabase
-supabase/schema.sql # tabel + fungsi + keamanan (RLS)
+assets/style.css    # desain
+supabase/schema.sql # tabel quiz_attempts + fungsi + keamanan (RLS)
 ```
+
+## Mengubah konten
+
+Semua teks ada di `assets/content.js`:
+- **Materi:** tambah, ubah, atau hapus objek di array `materi`. Jenis blok yang tersedia dijelaskan di bagian atas file.
+- **Video:** ganti `url` di array `videos` dengan tautan YouTube/Drive pilihanmu. Tautan bawaan masih berupa pencarian YouTube.
+- **Kuis:** ubah array `quiz.questions`. `a` adalah indeks jawaban benar, dimulai dari 0.
+
+## Menghubungkan Supabase (menyimpan hasil kuis)
+
+1. Buka Supabase Dashboard → **SQL Editor**, tempel isi `supabase/schema.sql`, lalu klik **Run**.
+2. Buka **Project Settings → API**, lalu salin *Project URL* dan *anon / publishable key*.
+3. Isi keduanya di `assets/config.js`, lalu commit dan push.
+4. Lihat hasil di **Table Editor → quiz_attempts**, atau dengan contoh query di bagian bawah `schema.sql`.
+
+Tanpa Supabase, kuis tetap berfungsi dan skor tersimpan di perangkat pengguna.
 
 ## Menjalankan lokal
 
@@ -30,31 +47,13 @@ supabase/schema.sql # tabel + fungsi + keamanan (RLS)
 npx serve .
 ```
 
-## Menghubungkan Supabase
+## Deploy
 
-1. Buka Supabase Dashboard → **SQL Editor** → tempel isi `supabase/schema.sql` → **Run**.
-2. Buka **Project Settings → API**, salin *Project URL* dan *anon / publishable key*.
-3. Isi keduanya di `assets/config.js`, lalu deploy ulang.
+Repo ini terhubung ke Vercel: setiap push ke `main` akan otomatis ter-deploy. Untuk deploy manual: `npx vercel --prod`.
 
-Tanpa langkah ini situs tetap jalan dalam *mode lokal* (data hanya tersimpan di peramban pengunjung).
+## Catatan
 
-> Kunci anon/publishable aman di frontend: tabel dikunci RLS dan publik hanya bisa memanggil fungsi yang mengembalikan angka agregat. Jangan pernah memakai `service_role`/secret key di sini.
-
-## Deploy ke Vercel
-
-```bash
-npx vercel --prod
-```
-
-Atau push ke GitHub lalu *Import Project* di vercel.com (Framework: **Other**, tanpa build command).
-
-## Menambah edisi / konten
-
-Setiap bab adalah `<section class="chapter" data-title="...">` di `index.html`. Daftar isi dan titik navigasi dibuat otomatis dari atribut `data-title`. Foto galeri, pertanyaan kuis, dan opsi polling ada di `assets/app.js`.
-
-## Kredit
-
-Foto: Lorem Picsum (Unsplash) · Video: "Flower", MDN Web Docs (CC0) · Font: Fraunces & Inter (Google Fonts).
+Materi bersifat edukasi dan tidak menggantikan pemeriksaan tenaga kesehatan. Rujukan: Kemenkes RI (Pedoman Pencegahan dan Penanggulangan Anemia pada Rematri & WUS, Pedoman Gizi Seimbang) dan WHO.
 
 ## Lisensi
 

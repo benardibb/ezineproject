@@ -1,534 +1,349 @@
-import { db, remote } from "./db.js";
+import { site, materi, videos, quiz, pairGame, sources } from "./content.js";
+import { store, remote, submitQuiz, quizHistory } from "./db.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-const fmt = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 });
+const view = $("#view"), topMeta = $("#topMeta"), progress = $("#progress"), backBtn = $("#backBtn");
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 function toast(msg) {
-  const t = $("#toast");
-  t.textContent = msg; t.classList.add("is-on");
-  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("is-on"), 2400);
+  const t = $("#toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("on"), 2400);
 }
 
-/* ==========================================================
-   Tema
-   ========================================================== */
-(function theme() {
-  const root = document.documentElement;
-  try { const saved = localStorage.getItem("pelan:theme"); if (saved) root.dataset.theme = saved; } catch {}
-  $("#themeBtn").addEventListener("click", toggle);
-  function toggle() {
-    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-    root.dataset.theme = dark ? "light" : "dark";
-    try { localStorage.setItem("pelan:theme", root.dataset.theme); } catch {}
-  }
-  theme.toggle = toggle;
-})();
+/* ---------- Status baca ---------- */
+const readSet = () => new Set(store.get("gc:read", []));
+function markRead(id) { const s = readSet(); s.add(id); store.set("gc:read", [...s]); }
+const readPct = () => Math.round((readSet().size / materi.length) * 100);
 
 /* ==========================================================
-   Navigasi: daftar isi, titik samping, progres, keyboard
+   Router (hash): #/  #/materi  #/materi/:id  #/video  #/kuis  #/tentang
    ========================================================== */
-const chapters = $$(".chapter");
-const tocList = $("#tocList"), dots = $("#dots"), toc = $("#toc"), menuBtn = $("#menuBtn");
+const routes = { "": home, materi: materiList, video: videoPage, kuis: quizPage, tentang: about };
 
-chapters.forEach((c, i) => {
-  const title = c.dataset.title;
-  const li = document.createElement("li");
-  li.innerHTML = `<a href="#${c.id}"><span class="n">${String(i).padStart(2, "0")}</span>${title}</a>`;
-  tocList.append(li);
-  const d = document.createElement("a");
-  d.href = `#${c.id}`; d.setAttribute("aria-label", title);
-  d.innerHTML = `<span>${title}</span>`;
-  dots.append(d);
-});
-
-function setMenu(open) {
-  toc.hidden = !open;
-  menuBtn.setAttribute("aria-expanded", String(open));
-  document.body.style.overflow = open ? "hidden" : "";
-  if (open) $("a", tocList)?.focus();
+function router() {
+  const [, page = "", id] = location.hash.replace(/^#/, "").split("/");
+  const fn = page === "materi" && id ? () => article(id) : routes[page] || home;
+  topMeta.textContent = ""; progress.style.width = "0";
+  backBtn.hidden = !(page === "materi" && id);
+  $$(".tabbar a").forEach((a) => a.setAttribute("aria-current", a.dataset.tab === (page || "home") ? "page" : "false"));
+  view.style.animation = "none"; void view.offsetWidth; view.style.animation = "";
+  fn();
+  scrollTo(0, 0);
+  view.focus({ preventScroll: true });
 }
-menuBtn.addEventListener("click", () => setMenu(toc.hidden));
-toc.addEventListener("click", (e) => { if (e.target.closest("a") || e.target === toc) setMenu(false); });
-
-let current = 0;
-const io = new IntersectionObserver((entries) => {
-  entries.forEach((en) => {
-    if (!en.isIntersecting) return;
-    current = chapters.indexOf(en.target);
-    $$("a", dots).forEach((a, i) => a.setAttribute("aria-current", String(i === current)));
-    $$("a", tocList).forEach((a, i) => a.setAttribute("aria-current", String(i === current)));
-    document.body.classList.toggle("cover-visible", current === 0);
-  });
-}, { rootMargin: "-45% 0px -50% 0px" });
-chapters.forEach((c) => io.observe(c));
-
-const bar = $("#progressBar"), topbar = $("#topbar"), coverImg = $(".cover__media img");
-let lastY = 0, ticking = false;
-addEventListener("scroll", () => {
-  if (ticking) return; ticking = true;
-  requestAnimationFrame(() => {
-    const y = scrollY, h = document.documentElement.scrollHeight - innerHeight;
-    bar.style.width = `${(y / h) * 100}%`;
-    topbar.classList.toggle("is-scrolled", y > 10);
-    topbar.classList.toggle("is-hidden", y > lastY && y > 400 && toc.hidden);
-    if (!reduceMotion && y < innerHeight) coverImg.style.transform = `translateY(${y * 0.25}px) scale(1.02)`;
-    lastY = y; ticking = false;
-  });
-}, { passive: true });
-
-function go(i) {
-  const c = chapters[Math.max(0, Math.min(chapters.length - 1, i))];
-  c.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
-}
-addEventListener("keydown", (e) => {
-  if (e.target.closest("input, select, textarea") || e.metaKey || e.ctrlKey || e.altKey) return;
-  const k = e.key.toLowerCase();
-  if (k === "escape" && !toc.hidden) setMenu(false);
-  else if (k === "m") setMenu(toc.hidden);
-  else if (k === "t") theme.toggle();
-  else if (k === "j") go(current + 1);
-  else if (k === "k") go(current - 1);
-});
-
-/* Animasi muncul saat digulir */
-const revealIO = new IntersectionObserver((entries) => {
-  entries.forEach((en) => { if (en.isIntersecting) { en.target.classList.add("is-in"); revealIO.unobserve(en.target); } });
-}, { rootMargin: "0px 0px -8% 0px" });
-$$(".reveal").forEach((el) => revealIO.observe(el));
+addEventListener("hashchange", router);
+backBtn.addEventListener("click", () => (location.hash = "#/materi"));
 
 /* ==========================================================
-   Reaksi (suka)
+   Beranda
    ========================================================== */
-$$(".react").forEach(async (el) => {
-  const id = el.dataset.react, btn = $(".react__btn", el), count = $(".react__count", el);
-  const paint = ({ count: n = 0, on = false } = {}) => {
-    btn.setAttribute("aria-pressed", String(on));
-    $(".react__label", el).textContent = on ? "Kamu menyukai ini" : "Suka esai ini";
-    count.textContent = remote ? `${fmt.format(n)} pembaca menyukai ini` : "";
-  };
-  paint(await db.reaction(id));
-  btn.addEventListener("click", async () => {
-    btn.disabled = true;
-    paint(await db.toggleReaction(id));
-    btn.disabled = false;
-  });
-});
+function home() {
+  document.title = `${site.title}: ${site.subtitle}`;
+  const read = readSet(), pct = readPct();
+  const next = materi.find((m) => !read.has(m.id)) || materi[0];
+  const weeks = store.get("gc:ttd", [false, false, false, false]);
+  view.innerHTML = `
+    <section class="cover">
+      <p class="eyebrow">${esc(site.edition)}</p>
+      <h1>${esc(site.title)}:<span>${esc(site.subtitle)}</span></h1>
+      <p>${esc(site.tagline)}</p>
+      <a class="btn" href="#/materi/${materi[0].id}">Mulai membaca →</a>
+    </section>
 
-/* ==========================================================
-   Infografis: kalkulator waktu
-   ========================================================== */
-(function calc() {
-  const input = $("#hours"), out = $("#hoursOut"), day = $("#dayBar");
-  for (let i = 0; i < 16; i++) day.insertAdjacentHTML("beforeend", "<i><b></b></i>");
-  const cells = $$("b", day);
-  const nums = Object.fromEntries($$("[data-k]").map((n) => [n.dataset.k, n]));
-  const shown = {};
+    ${read.size ? `
+    <a class="continue" href="#/materi/${next.id}">
+      <span class="ring" style="--p:${pct}"><span>${pct}%</span></span>
+      <span class="txt"><b>${pct === 100 ? "Semua materi selesai 🎉" : "Lanjutkan membaca"}</b><span>${pct === 100 ? "Saatnya uji pemahamanmu di kuis." : esc(next.title)}</span></span>
+      <span class="chev" aria-hidden="true">›</span>
+    </a>` : ""}
 
-  function animate(el, key, to) {
-    const from = shown[key] ?? to; shown[key] = to;
-    if (reduceMotion || from === to) { el.textContent = fmt.format(to); return; }
-    const t0 = performance.now();
-    const step = (t) => {
-      const p = Math.min(1, (t - t0) / 500), e = 1 - Math.pow(1 - p, 3);
-      el.textContent = fmt.format(from + (to - from) * e);
-      if (p < 1) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  }
+    <div class="section-head"><h2>Menu Materi</h2><a href="#/materi">Lihat semua</a></div>
+    <div class="menu-grid">
+      ${materi.map((m, i) => `
+        <a class="tile ${read.has(m.id) ? "is-read" : ""}" href="#/materi/${m.id}">
+          <span class="n">${read.has(m.id) ? "✓" : String(i + 1).padStart(2, "0")}</span>
+          <span class="ico" aria-hidden="true">${m.icon}</span>
+          <b>${esc(m.title)}</b>
+        </a>`).join("")}
+    </div>
 
-  function update() {
-    const h = parseFloat(input.value);
-    const label = h % 1 === 0 ? `${h}` : `${Math.floor(h) ? Math.floor(h) + " " : ""}${{ 0.25: "¼", 0.5: "½", 0.75: "¾" }[h % 1]}`;
-    out.textContent = `${label} jam / hari`;
-    const year = h * 365;
-    animate(nums.hoursYear, "hoursYear", Math.round(year));
-    animate(nums.books, "books", Math.floor(year / 15));
-    animate(nums.km, "km", Math.round(year * 4.5));
-    animate(nums.days, "days", Math.round(year / 24));
-    cells.forEach((c, i) => { c.style.width = `${Math.max(0, Math.min(1, h - i)) * 100}%`; });
-    const pct = ((h - input.min) / (input.max - input.min)) * 100;
-    input.style.background = `linear-gradient(90deg, var(--accent) ${pct}%, var(--line) ${pct}%)`;
-  }
-  input.addEventListener("input", update);
-  update();
-})();
+    <div class="section-head"><h2>Belajar Lebih Lanjut</h2></div>
+    <div class="feature-row">
+      <a class="feature feature--amber" href="#/video"><b>▶ Video Edukasi</b><span>${videos.length} video pilihan</span></a>
+      <a class="feature feature--green" href="#/kuis"><b>✓ Kuis Evaluasi</b><span>${quiz.questions.length} soal + pembahasan</span></a>
+    </div>
 
-/* ==========================================================
-   Galeri geser + lightbox
-   ========================================================== */
-(function gallery() {
-  const photos = [
-    [1018, "Sebelum alarm berbunyi."],
-    [1039, "Air yang tidak pernah terburu-buru."],
-    [1043, "Jalan yang belum ramai."],
-    [1044, "Cahaya pertama di jendela."],
-    [1050, "Angin yang datang tanpa janji."],
-    [1036, "Diam yang terasa hangat."],
-    [1069, "Satu napas panjang, lalu hari dimulai."],
-  ];
-  const track = $("#galleryTrack"), dotsEl = $("#galDots");
-  photos.forEach(([id, cap], i) => {
-    track.insertAdjacentHTML("beforeend", `
-      <figure class="slide">
-        <button type="button" data-full="https://picsum.photos/id/${id}/1800/1200" data-cap="${cap}" aria-label="Perbesar foto ${i + 1}: ${cap}">
-          <img src="https://picsum.photos/id/${id}/1080/720" alt="${cap}" loading="lazy" draggable="false" />
-        </button>
-        <figcaption><strong>${String(i + 1).padStart(2, "0")}</strong> ${cap}</figcaption>
-      </figure>`);
-    dotsEl.insertAdjacentHTML("beforeend", `<button type="button" aria-label="Ke foto ${i + 1}"></button>`);
-  });
-  const slides = $$(".slide", track), dotBtns = $$("button", dotsEl);
-  let idx = 0;
+    <div class="section-head"><h2>Pengingat TTD Bulan Ini</h2></div>
+    <div class="tracker">
+      <div class="tracker__head"><b>1 tablet setiap minggu</b><span class="small muted" id="ttdCount">${weeks.filter(Boolean).length}/4 minggu</span></div>
+      <div class="weeks">
+        ${weeks.map((on, i) => `<button class="week" aria-pressed="${on}" data-i="${i}"><span class="pill" aria-hidden="true">💊</span>Minggu ${i + 1}</button>`).join("")}
+      </div>
+      <p class="small muted" style="margin:12px 0 0">Ketuk setelah kamu minum TTD. Tersimpan di perangkat ini.</p>
+    </div>
 
-  const toSlide = (i) => {
-    idx = (i + slides.length) % slides.length;
-    const s = slides[idx];
-    track.scrollTo({ left: s.offsetLeft - (track.clientWidth - s.clientWidth) / 2, behavior: reduceMotion ? "auto" : "smooth" });
-  };
-  $("#galPrev").onclick = () => toSlide(idx - 1);
-  $("#galNext").onclick = () => toSlide(idx + 1);
-  dotBtns.forEach((b, i) => (b.onclick = () => toSlide(i)));
-  track.addEventListener("keydown", (e) => {
-    if (e.key === "ArrowRight") { e.preventDefault(); toSlide(idx + 1); }
-    if (e.key === "ArrowLeft") { e.preventDefault(); toSlide(idx - 1); }
-  });
+    <p class="small muted" style="text-align:center;margin-top:28px"><a href="#/tentang">Tentang & sumber materi</a></p>`;
 
-  const slideIO = new IntersectionObserver((ents) => ents.forEach((en) => {
-    if (en.intersectionRatio > 0.6) {
-      idx = slides.indexOf(en.target);
-      dotBtns.forEach((b, i) => b.setAttribute("aria-current", String(i === idx)));
-    }
-  }), { root: track, threshold: [0.6] });
-  slides.forEach((s) => slideIO.observe(s));
-
-  // Seret dengan mouse (sentuh sudah ditangani scroll native)
-  let down = false, startX = 0, startLeft = 0, moved = false;
-  track.addEventListener("pointerdown", (e) => {
-    if (e.pointerType !== "mouse") return;
-    down = true; moved = false; startX = e.clientX; startLeft = track.scrollLeft;
-  });
-  addEventListener("pointermove", (e) => {
-    if (!down) return;
-    const dx = e.clientX - startX;
-    if (Math.abs(dx) > 5) { moved = true; track.classList.add("is-dragging"); }
-    track.scrollLeft = startLeft - dx;
-  });
-  addEventListener("pointerup", () => {
-    if (!down) return; down = false;
-    track.classList.remove("is-dragging");
-    if (moved) {
-      const center = track.scrollLeft + track.clientWidth / 2;
-      let best = 0, dist = Infinity;
-      slides.forEach((s, i) => { const d = Math.abs(s.offsetLeft + s.clientWidth / 2 - center); if (d < dist) { dist = d; best = i; } });
-      toSlide(best);
-    }
-  });
-
-  const lb = $("#lightbox");
-  track.addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-full]");
-    if (!b || moved) return;
-    $("#lbImg").src = b.dataset.full; $("#lbImg").alt = b.dataset.cap; $("#lbCap").textContent = b.dataset.cap;
-    lb.showModal();
-  });
-  $("#lbClose").onclick = () => lb.close();
-  lb.addEventListener("click", (e) => { if (e.target === lb) lb.close(); });
-})();
-
-/* ==========================================================
-   Ruang Dengar — suara dibangkitkan dengan Web Audio API
-   ========================================================== */
-(function sound() {
-  const playBtn = $("#playSound"), vol = $("#volume"), timerSel = $("#timer"), status = $("#soundStatus");
-  const canvas = $("#viz"), ctx2d = canvas.getContext("2d");
-  let ac, master, analyser, current = null, choice = "hujan", playing = false, timerId, endAt = 0;
-
-  function noiseBuffer(type) {
-    const len = ac.sampleRate * 4, buf = ac.createBuffer(2, len, ac.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-      const d = buf.getChannelData(ch);
-      let b0 = 0, b1 = 0, b2 = 0, last = 0;
-      for (let i = 0; i < len; i++) {
-        const w = Math.random() * 2 - 1;
-        if (type === "brown") { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; }
-        else if (type === "pink") {
-          b0 = 0.99765 * b0 + w * 0.099046; b1 = 0.963 * b1 + w * 0.2965164; b2 = 0.57 * b2 + w * 1.0526913;
-          d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.11;
-        } else d[i] = w * 0.5;
-      }
-    }
-    return buf;
-  }
-
-  function lfo(target, rate, depth, base) {
-    const o = ac.createOscillator(), g = ac.createGain();
-    o.frequency.value = rate; g.gain.value = depth; target.value = base;
-    o.connect(g).connect(target); o.start();
-    return o;
-  }
-
-  function build(kind) {
-    const out = ac.createGain(); out.gain.value = 0; out.connect(master);
-    const nodes = [], timers = [];
-    const src = (type) => { const s = ac.createBufferSource(); s.buffer = noiseBuffer(type); s.loop = true; s.start(); nodes.push(s); return s; };
-
-    if (kind === "hujan") {
-      const s = src("pink");
-      const hp = ac.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 500;
-      const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 7000;
-      const g = ac.createGain(); g.gain.value = 0.9;
-      s.connect(hp).connect(lp).connect(g).connect(out);
-      const rumble = src("brown"); const rg = ac.createGain(); rg.gain.value = 0.35; rumble.connect(rg).connect(out);
-      // tetes hujan acak
-      const dropBuf = ac.createBuffer(1, ac.sampleRate * 0.03, ac.sampleRate);
-      const dd = dropBuf.getChannelData(0); for (let i = 0; i < dd.length; i++) dd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / dd.length, 4);
-      const drip = () => {
-        const b = ac.createBufferSource(); b.buffer = dropBuf;
-        const bp = ac.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1800 + Math.random() * 4000; bp.Q.value = 6;
-        const pg = ac.createGain(); pg.gain.value = 0.15 + Math.random() * 0.35;
-        const pan = ac.createStereoPanner(); pan.pan.value = Math.random() * 2 - 1;
-        b.connect(bp).connect(pg).connect(pan).connect(out); b.start();
-        timers.push(setTimeout(drip, 30 + Math.random() * 160));
-        if (timers.length > 50) timers.splice(0, 25);
-      };
-      drip();
-    } else if (kind === "ombak") {
-      const s = src("brown");
-      const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.Q.value = 0.7;
-      const g = ac.createGain();
-      nodes.push(lfo(lp.frequency, 0.09, 700, 900), lfo(g.gain, 0.09, 0.45, 0.55));
-      s.connect(lp).connect(g).connect(out);
-      const fizz = src("white"); const hp = ac.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 3000;
-      const fg = ac.createGain(); nodes.push(lfo(fg.gain, 0.09, 0.05, 0.05));
-      fizz.connect(hp).connect(fg).connect(out);
-    } else {
-      const s = src("pink");
-      const bp = ac.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 1.4;
-      const g = ac.createGain();
-      nodes.push(lfo(bp.frequency, 0.07, 350, 600), lfo(bp.Q, 0.13, 0.9, 1.6), lfo(g.gain, 0.05, 0.4, 1.1));
-      s.connect(bp).connect(g).connect(out);
-      const s2 = src("pink"); const bp2 = ac.createBiquadFilter(); bp2.type = "bandpass"; bp2.Q.value = 8;
-      const g2 = ac.createGain(); g2.gain.value = 0.25; nodes.push(lfo(bp2.frequency, 0.11, 500, 1200));
-      s2.connect(bp2).connect(g2).connect(out);
-    }
-    out.gain.setTargetAtTime(1, ac.currentTime, 0.6);
-    return {
-      stop() {
-        timers.forEach(clearTimeout);
-        out.gain.setTargetAtTime(0, ac.currentTime, 0.3);
-        setTimeout(() => { nodes.forEach((n) => { try { n.stop(); } catch {} }); out.disconnect(); }, 1500);
-      },
-    };
-  }
-
-  function init() {
-    ac = new (window.AudioContext || window.webkitAudioContext)();
-    master = ac.createGain(); master.gain.value = +vol.value * 0.6;
-    analyser = ac.createAnalyser(); analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.85;
-    master.connect(analyser).connect(ac.destination);
-  }
-
-  async function play() {
-    if (!ac) init();
-    await ac.resume();
-    current?.stop(); current = build(choice); playing = true;
-    playBtn.setAttribute("aria-pressed", "true");
-    $(".play-ico", playBtn).textContent = "❚❚"; $(".txt", playBtn).textContent = "Jeda";
-    setTimer();
-  }
-  function stop() {
-    current?.stop(); current = null; playing = false; clearInterval(timerId); endAt = 0;
-    playBtn.setAttribute("aria-pressed", "false");
-    $(".play-ico", playBtn).textContent = "▶"; $(".txt", playBtn).textContent = "Putar";
-    status.textContent = "";
-  }
-  function setTimer() {
-    clearInterval(timerId);
-    const sec = +timerSel.value;
-    const label = { hujan: "Hujan", ombak: "Ombak", angin: "Angin" }[choice];
-    if (!sec) { endAt = 0; status.textContent = `Sedang memutar: ${label}`; return; }
-    endAt = Date.now() + sec * 1000;
-    const tick = () => {
-      const left = Math.max(0, Math.round((endAt - Date.now()) / 1000));
-      status.textContent = `Sedang memutar: ${label} · berhenti dalam ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
-      if (!left) stop();
-    };
-    tick(); timerId = setInterval(tick, 1000);
-  }
-
-  playBtn.addEventListener("click", () => (playing ? stop() : play()));
-  vol.addEventListener("input", () => { if (master) master.gain.setTargetAtTime(+vol.value * 0.6, ac.currentTime, 0.05); });
-  timerSel.addEventListener("change", () => playing && setTimer());
-  $$(".sound__choices button").forEach((b) => b.addEventListener("click", () => {
-    $$(".sound__choices button").forEach((x) => x.setAttribute("aria-checked", String(x === b)));
-    choice = b.dataset.sound;
-    if (playing) play();
+  $$(".week", view).forEach((b) => b.addEventListener("click", () => {
+    weeks[b.dataset.i] = !weeks[b.dataset.i];
+    b.setAttribute("aria-pressed", weeks[b.dataset.i]);
+    store.set("gc:ttd", weeks);
+    const n = weeks.filter(Boolean).length;
+    $("#ttdCount").textContent = `${n}/4 minggu`;
+    if (weeks[b.dataset.i]) toast(n === 4 ? "Hebat! Sebulan penuh rutin minum TTD 🎉" : "Tercatat. Terus pertahankan!");
   }));
-
-  function draw() {
-    const dpr = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
-    if (canvas.width !== w * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
-    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx2d.clearRect(0, 0, w, h);
-    const color = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#b5562f";
-    ctx2d.fillStyle = color;
-    const data = new Uint8Array(analyser ? analyser.frequencyBinCount : 64);
-    if (analyser) analyser.getByteFrequencyData(data);
-    const n = 48, gap = 3, bw = (w - gap * (n - 1)) / n;
-    for (let i = 0; i < n; i++) {
-      const v = data[Math.floor((i / n) * data.length * 0.7)] / 255;
-      const bh = Math.max(2, v * (h - 10));
-      ctx2d.globalAlpha = 0.35 + v * 0.65;
-      ctx2d.fillRect(i * (bw + gap), (h - bh) / 2, bw, bh);
-    }
-    ctx2d.globalAlpha = 1;
-    requestAnimationFrame(draw);
-  }
-  draw(); // garis datar sebelum audio dimulai
-})();
+}
 
 /* ==========================================================
-   Video player kustom
+   Daftar materi
    ========================================================== */
-(function video() {
-  const v = $("#vid"), wrap = $(".video"), big = $("#vidPlay"), tog = $("#vidToggle"),
-    seek = $("#vidSeek"), time = $("#vidTime"), speed = $("#vidSpeed"), full = $("#vidFull");
-  const t = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-  const toggle = () => (v.paused ? v.play() : v.pause());
-  big.onclick = toggle; tog.onclick = toggle; v.onclick = toggle;
-  v.onplay = () => { wrap.classList.add("is-playing"); tog.textContent = "❚❚"; };
-  v.onpause = () => { wrap.classList.remove("is-playing"); tog.textContent = "▶"; };
-  v.ontimeupdate = () => { if (v.duration) seek.value = (v.currentTime / v.duration) * 100; time.textContent = `${t(v.currentTime)} / ${t(v.duration || 0)}`; };
-  v.onloadedmetadata = v.ontimeupdate;
-  seek.oninput = () => { if (v.duration) v.currentTime = (seek.value / 100) * v.duration; };
-  const speeds = [1, 0.5, 0.25, 2];
-  speed.onclick = () => { const n = speeds[(speeds.indexOf(v.playbackRate) + 1) % speeds.length]; v.playbackRate = n; speed.textContent = `${n}×`; toast(`Kecepatan ${n}×${n < 1 ? " — lebih pelan" : ""}`); };
-  full.onclick = () => (document.fullscreenElement ? document.exitFullscreen() : (wrap.requestFullscreen?.() || v.webkitEnterFullscreen?.()));
-  v.onerror = () => toast("Video gagal dimuat.");
-  // jeda otomatis saat keluar layar
-  new IntersectionObserver(([en]) => { if (!en.isIntersecting && !v.paused) v.pause(); }, { threshold: 0.2 }).observe(wrap);
-})();
+function materiList() {
+  document.title = `Materi — ${site.title}`;
+  const read = readSet();
+  topMeta.textContent = `${read.size}/${materi.length} dibaca`;
+  progress.style.width = `${readPct()}%`;
+  view.innerHTML = `
+    <p class="eyebrow">Materi Edukasi</p>
+    <h1 class="h1">Pilih materi</h1>
+    <p class="lead">Baca berurutan atau pilih topik yang ingin kamu pelajari.</p>
+    <div class="list">
+      ${materi.map((m, i) => `
+        <a class="row" href="#/materi/${m.id}">
+          <span class="ico" aria-hidden="true">${m.icon}</span>
+          <span class="txt"><b>${i + 1}. ${esc(m.title)}</b><span>${esc(m.summary)}</span></span>
+          ${read.has(m.id) ? '<span class="done">✓</span>' : '<span class="chev" aria-hidden="true">›</span>'}
+        </a>`).join("")}
+    </div>`;
+}
 
 /* ==========================================================
-   Kuis
+   Halaman materi
    ========================================================== */
-(function quiz() {
-  const QUIZ_ID = "tipe-pelambat";
-  const types = {
-    jalan:  { emoji: "🚶", name: "Si Pejalan", desc: "Kamu melambat dengan bergerak. Langkah kaki adalah meditasimu — kota, taman, dan gang kecil adalah ruang bernapasmu." },
-    renung: { emoji: "📖", name: "Si Perenung", desc: "Kamu melambat lewat kata dan pikiran. Buku, jurnal, dan keheningan membuat duniamu terasa lebih luas." },
-    rasa:   { emoji: "🍵", name: "Si Penikmat", desc: "Kamu melambat lewat rasa. Menyeduh teh, memasak pelan, dan makan tanpa layar adalah ritualmu." },
-    dengar: { emoji: "🎧", name: "Si Pendengar", desc: "Kamu melambat lewat suara. Hujan, musik, dan ombak menolongmu kembali ke saat ini." },
+function article(id) {
+  const i = materi.findIndex((m) => m.id === id);
+  if (i < 0) { location.hash = "#/materi"; return; }
+  const m = materi[i], prev = materi[i - 1], next = materi[i + 1];
+  document.title = `${m.title} — ${site.title}`;
+  topMeta.textContent = `${i + 1} / ${materi.length}`;
+  progress.style.width = `${((i + 1) / materi.length) * 100}%`;
+  markRead(m.id);
+
+  view.innerHTML = `
+    <article class="article">
+      <header class="article-head">
+        <div class="ico" aria-hidden="true">${m.icon}</div>
+        <p class="eyebrow">Materi ${i + 1}</p>
+        <h1 class="h1">${esc(m.title)}</h1>
+        <p class="lead" style="margin:0">${esc(m.summary)}</p>
+      </header>
+      ${m.blocks.map(block).join("")}
+    </article>
+    <nav class="pager" aria-label="Navigasi materi">
+      ${prev ? `<a class="prev" href="#/materi/${prev.id}"><small>← Sebelumnya</small><b>${esc(prev.title)}</b></a>` : ""}
+      ${next
+        ? `<a class="next" href="#/materi/${next.id}"><small>Selanjutnya →</small><b>${esc(next.title)}</b></a>`
+        : `<a class="next" href="#/kuis"><small>Selesai membaca →</small><b>Kerjakan Kuis</b></a>`}
+    </nav>
+    <p class="swipe-hint">Geser kiri/kanan untuk berpindah halaman</p>`;
+  bindBlocks();
+
+  // Geser untuk berpindah halaman
+  let x0 = null, y0 = null;
+  view.ontouchstart = (e) => { if (e.target.closest(".flip, .pair, input")) return; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; };
+  view.ontouchend = (e) => {
+    if (x0 == null) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+    if (Math.abs(dx) < 70 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
+    if (dx < 0) location.hash = next ? `#/materi/${next.id}` : "#/kuis";
+    else if (prev) location.hash = `#/materi/${prev.id}`;
   };
-  const qs = [
-    ["Minggu pagi tanpa rencana. Kamu…", [["jalan", "Jalan kaki keliling lingkungan"], ["renung", "Membaca di kasur sampai siang"], ["rasa", "Membuat sarapan pelan-pelan"], ["dengar", "Memutar musik sambil rebahan"]]],
-    ["Benda yang selalu ada di tasmu?", [["jalan", "Sepatu nyaman & payung lipat"], ["renung", "Buku catatan kecil"], ["rasa", "Tumbler berisi teh"], ["dengar", "Earphone"]]],
-    ["Saat pikiran penuh, yang paling menolong adalah…", [["jalan", "Keluar rumah dan bergerak"], ["renung", "Menulis apa saja di jurnal"], ["rasa", "Memasak atau makan enak"], ["dengar", "Mendengarkan sesuatu yang tenang"]]],
-    ["Liburan impianmu?", [["jalan", "Menyusuri kota tua tanpa peta"], ["renung", "Kabin sepi dengan rak buku"], ["rasa", "Berkeliling pasar dan warung lokal"], ["dengar", "Pantai sepi, hanya suara ombak"]]],
-  ];
-  const el = $("#quiz");
-  let step = 0, score = {};
+}
 
-  function renderQ() {
-    const [q, opts] = qs[step];
-    el.innerHTML = `
-      <div class="quiz__meta"><span>Pertanyaan ${step + 1} dari ${qs.length}</span>${step ? '<button class="poll__foot-btn link" id="qBack" style="background:none;border:0;color:inherit;cursor:pointer;text-decoration:underline">Kembali</button>' : ""}</div>
-      <div class="quiz__bar"><span style="width:${(step / qs.length) * 100}%"></span></div>
-      <p class="quiz__q">${q}</p>
-      <div class="quiz__opts">${opts.map(([k, t], i) => `<button class="opt" data-k="${k}"><span class="k">${"ABCD"[i]}</span>${t}</button>`).join("")}</div>`;
-    $$(".opt", el).forEach((b) => (b.onclick = () => answer(b.dataset.k)));
-    $("#qBack", el)?.addEventListener("click", () => { step--; renderQ(); });
+function block(b) {
+  switch (b.t) {
+    case "p": return `<p>${b.text}</p>`;
+    case "list": return `<ul class="bullets">${b.items.map((x) => `<li>${x}</li>`).join("")}</ul>`;
+    case "callout": return `<div class="callout callout--${b.tone || "info"}"><b>${b.title}</b><p>${b.text}</p></div>`;
+    case "grid": return `<div class="cards ${b.compact ? "compact" : ""}">${b.items.map((c) => `
+      <div class="card"><div class="ico" aria-hidden="true">${c.icon}</div><b>${c.title}</b>${c.text ? `<span>${c.text}</span>` : ""}</div>`).join("")}</div>`;
+    case "stat": return `<div class="stat"><div class="v">${b.value}</div><div><div class="u">${b.unit}</div><p>${b.text}</p></div></div>`;
+    case "steps": return `<ol class="steps">${b.items.map((s) => `<li><b>${s.title}</b><span>${s.text}</span></li>`).join("")}</ol>`;
+    case "dodont": return `<div class="dodont">
+      <div class="do"><h3>Lakukan</h3><ul>${b.do.map((x) => `<li>${x}</li>`).join("")}</ul></div>
+      <div class="dont"><h3>Hindari</h3><ul>${b.dont.map((x) => `<li>${x}</li>`).join("")}</ul></div></div>`;
+    case "flip": return `<p class="flips-title">Mitos atau fakta? Ketuk kartu untuk membalik.</p><div class="flips">${b.items.map((f) => `
+      <button class="flip" aria-pressed="false"><span class="flip__in">
+        <span class="flip__face flip__front"><small>Mitos</small>${f.front.replace(/^Mitos:\s*/, "")}</span>
+        <span class="flip__face flip__back"><small>Fakta</small>${f.back.replace(/^Fakta:\s*/, "")}</span>
+      </span></button>`).join("")}</div>`;
+    case "check": return `<div class="check" data-result="${esc(b.result)}"><h3>${b.title}</h3>${b.items.map((x) => `
+      <label><input type="checkbox" />${x}</label>`).join("")}<p class="res" hidden></p></div>`;
+    case "pair": return `<div class="pair"><h3>${pairGame.title}</h3><p>${pairGame.intro}</p>
+      <div class="pair__opts">${pairGame.options.map((o, i) => `<button data-i="${i}"><span class="e" aria-hidden="true">${o.icon}</span>${o.label}</button>`).join("")}</div>
+      <p class="pair__note" aria-live="polite"></p></div>`;
+    case "video": { const v = videos.find((x) => x.id === b.id); return v ? videoCard(v) : ""; }
+    default: return "";
   }
-  const answers = [];
-  function answer(k) {
-    answers[step] = k;
-    if (++step < qs.length) renderQ(); else finish();
-  }
-  async function finish() {
-    score = {}; answers.forEach((k) => (score[k] = (score[k] || 0) + 1));
-    const best = Object.keys(score).reduce((a, b) => (score[b] > score[a] ? b : a), answers[answers.length - 1]);
-    el.innerHTML = `<div class="quiz__result"><p class="note">Menyimpan hasil…</p></div>`;
-    const stats = await db.saveQuiz(QUIZ_ID, best);
-    showResult(best, stats);
-  }
-  function showResult(best, stats) {
-    const t = types[best];
-    const total = Object.values(stats).reduce((a, b) => a + b, 0) || 1;
-    el.innerHTML = `
-      <div class="quiz__result">
-        <div class="quiz__emoji">${t.emoji}</div>
-        <p class="eyebrow" style="justify-content:center">Kamu adalah</p>
-        <h3>${t.name}</h3>
-        <p>${t.desc}</p>
-        <div class="quiz__stats">
-          <p class="note" style="margin:0 0 4px">${remote ? `Hasil ${fmt.format(total)} pembaca:` : "Hasil di perangkat ini (mode lokal):"}</p>
-          ${Object.entries(types).map(([k, v]) => {
-            const pct = Math.round(((stats[k] || 0) / total) * 100);
-            return `<div class="quiz__row ${k === best ? "is-me" : ""}"><span>${v.emoji} ${v.name}</span><span class="track"><span style="width:0" data-w="${pct}"></span></span><span>${pct}%</span></div>`;
-          }).join("")}
-        </div>
-        <button class="btn btn--ghost" id="qRetry">Ulangi kuis</button>
-      </div>`;
-    requestAnimationFrame(() => requestAnimationFrame(() => $$("[data-w]", el).forEach((s) => (s.style.width = s.dataset.w + "%"))));
-    $("#qRetry").onclick = () => { step = 0; answers.length = 0; renderQ(); };
-  }
-  renderQ();
-})();
+}
 
-/* ==========================================================
-   Polling
-   ========================================================== */
-(function poll() {
-  const el = $("#poll"), POLL_ID = el.dataset.poll;
-  const options = [
-    ["tidur", "😴", "Tidur & istirahat"],
-    ["pangan", "🌾", "Pangan lokal & dapur rumah"],
-    ["jalan", "🏙", "Kota yang ramah pejalan kaki"],
-    ["sepi", "📵", "Sepi digital"],
-  ];
-  let mine = db.myVote(POLL_ID), results = {}, showing = Boolean(mine);
+function videoCard(v) {
+  return `<a class="vcard" href="${esc(v.url)}" target="_blank" rel="noopener">
+    <span class="thumb" aria-hidden="true"></span>
+    <span class="txt"><b>${esc(v.title)}</b><span>${esc(v.duration)} · buka tautan</span></span>
+    <span class="ext" aria-hidden="true">↗</span></a>`;
+}
 
-  function render() {
-    const total = Object.values(results).reduce((a, b) => a + b, 0);
-    el.innerHTML = options.map(([id, emo, label]) => {
-      const n = results[id] || 0, pct = total ? Math.round((n / total) * 100) : 0;
-      return `<button class="poll__opt ${mine === id ? "is-mine" : ""}" data-id="${id}" ${showing ? `aria-label="${label}, ${pct} persen${mine === id ? ", pilihanmu" : ""}"` : ""}>
-        <span class="poll__fill" style="width:${showing ? pct : 0}%"></span>
-        <span>${emo}&nbsp; ${label}${mine === id ? " ✓" : ""}</span>
-        <span class="pct">${showing ? `${pct}%` : ""}</span>
-      </button>`;
-    }).join("") + `<div class="poll__foot"><span>${showing ? `${fmt.format(total)} suara${remote ? "" : " · mode lokal"}` : "Pilih satu untuk melihat hasil"}</span>${mine ? '<span>Klik opsi lain untuk mengganti pilihan</span>' : '<button type="button" id="peek">Lihat hasil</button>'}</div>`;
-    $$(".poll__opt", el).forEach((b) => (b.onclick = () => vote(b.dataset.id)));
-    $("#peek", el)?.addEventListener("click", () => { showing = true; render(); });
-  }
-  async function vote(id) {
-    if (id === mine) return;
-    $$(".poll__opt", el).forEach((b) => (b.disabled = true));
-    results = await db.castVote(POLL_ID, id);
-    mine = id; showing = true; render();
-    toast("Terima kasih, suaramu tercatat!");
-  }
-  async function refresh() { results = await db.pollResults(POLL_ID); render(); }
-  render(); refresh();
-  // perbarui berkala saat bagian terlihat
-  let iv;
-  new IntersectionObserver(([en]) => {
-    clearInterval(iv);
-    if (en.isIntersecting && remote) iv = setInterval(() => !document.hidden && refresh(), 15000);
-  }).observe(el);
-})();
+function bindBlocks() {
+  $$(".flip", view).forEach((f) => f.addEventListener("click", () => f.setAttribute("aria-pressed", String(f.getAttribute("aria-pressed") !== "true"))));
+  $$(".check", view).forEach((c) => {
+    const res = $(".res", c);
+    c.addEventListener("change", () => {
+      const n = $$("input:checked", c).length;
+      res.hidden = n === 0; res.textContent = c.dataset.result.replace("{n}", n);
+    });
+  });
+  $$(".pair", view).forEach((p) => {
+    const note = $(".pair__note", p);
+    $$("button", p).forEach((b) => b.addEventListener("click", () => {
+      const o = pairGame.options[b.dataset.i];
+      b.classList.add(o.good ? "good" : "bad");
+      note.textContent = o.note;
+    }));
+  });
+}
 
 /* ==========================================================
-   Bagikan
+   Video
    ========================================================== */
-$("#shareBtn").addEventListener("click", async () => {
-  const data = { title: "Pelan — Ezine Interaktif", text: "Edisi 01: Seni Melambat", url: location.href.split("#")[0] };
-  try {
-    if (navigator.share) await navigator.share(data);
-    else { await navigator.clipboard.writeText(data.url); toast("Tautan disalin ke clipboard"); }
-  } catch { /* dibatalkan */ }
-});
+function videoPage() {
+  document.title = `Video — ${site.title}`;
+  view.innerHTML = `
+    <p class="eyebrow">Video Edukasi</p>
+    <h1 class="h1">Tonton & pahami</h1>
+    <p class="lead">Ketuk video untuk membukanya melalui tautan.</p>
+    <div class="vlist">${videos.map(videoCard).join("")}</div>`;
+}
 
-$("#backendLabel").textContent = remote ? "Supabase (tersambung)" : "Mode lokal — hubungkan Supabase di assets/config.js";
+/* ==========================================================
+   Kuis evaluasi
+   ========================================================== */
+const Q = { step: -1, answers: [], code: "" };
+
+function quizPage() {
+  document.title = `Kuis — ${site.title}`;
+  if (Q.step < 0) return quizIntro();
+  if (Q.step >= quiz.questions.length) return quizResult();
+  quizQuestion();
+}
+
+function quizIntro() {
+  const hist = quizHistory(quiz.id), last = hist[hist.length - 1];
+  view.innerHTML = `
+    <p class="eyebrow">${esc(quiz.title)}</p>
+    <h1 class="h1">Uji pemahamanmu</h1>
+    <p class="lead">${esc(quiz.intro)}</p>
+    <div class="quiz-card">
+      ${readPct() < 100 ? `<div class="callout callout--warn" style="margin-top:0"><b>Belum selesai membaca?</b><p>Kamu baru membaca ${readSet().size} dari ${materi.length} materi. Kamu tetap bisa mulai kuis sekarang.</p></div>` : ""}
+      ${quiz.askCode ? `<div class="field">
+        <label for="code">Kode responden <span class="muted">(opsional)</span></label>
+        <input id="code" maxlength="40" autocomplete="off" placeholder="Contoh: R-012" value="${esc(Q.code)}" />
+        <small>Diisi jika diminta oleh peneliti/guru. Jangan isi nama lengkap.</small>
+      </div>` : ""}
+      ${last ? `<p class="small muted">Skor terakhirmu: <b>${last.score}/${last.total}</b></p>` : ""}
+      <button class="btn btn--red btn--block" id="start">Mulai Kuis</button>
+    </div>`;
+  $("#start").onclick = () => { Q.code = $("#code")?.value.trim() || ""; Q.step = 0; Q.answers = []; Q.saved = false; quizPage(); };
+}
+
+function quizQuestion() {
+  const n = Q.step, item = quiz.questions[n], total = quiz.questions.length;
+  topMeta.textContent = `Soal ${n + 1} / ${total}`;
+  progress.style.width = `${(n / total) * 100}%`;
+  view.innerHTML = `
+    <div class="quiz-card">
+      <div class="qbar">${quiz.questions.map((_, i) => `<i class="${i < n ? (Q.answers[i] === quiz.questions[i].a ? "ok" : "no") : i === n ? "on" : ""}"></i>`).join("")}</div>
+      <div class="qmeta">Soal ${n + 1} dari ${total}</div>
+      <p class="qtext">${esc(item.q)}</p>
+      <div class="opts">${item.o.map((o, i) => `<button class="opt" data-i="${i}"><span class="k">${"ABCD"[i]}</span>${esc(o)}</button>`).join("")}</div>
+      <div id="explain"></div>
+      <div class="quiz-actions" id="actions"></div>
+    </div>`;
+  $$(".opt", view).forEach((b) => b.addEventListener("click", () => {
+    const pick = +b.dataset.i, ok = pick === item.a;
+    Q.answers[n] = pick;
+    $$(".opt", view).forEach((x) => { x.disabled = true; if (+x.dataset.i === item.a) x.classList.add("correct"); });
+    if (!ok) b.classList.add("wrong");
+    $(".qbar i.on", view).className = ok ? "ok" : "no";
+    $("#explain").innerHTML = `<div class="explain ${ok ? "ok" : "no"}"><b>${ok ? "Benar!" : "Kurang tepat."}</b>${esc(item.e)}</div>`;
+    const last = n === total - 1;
+    $("#actions").innerHTML = `<button class="btn btn--block" id="nextQ">${last ? "Lihat Hasil" : "Soal Berikutnya →"}</button>`;
+    $("#nextQ").onclick = () => { Q.step++; quizPage(); scrollTo(0, 0); };
+    $("#nextQ").focus({ preventScroll: true });
+    $("#actions").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }));
+}
+
+async function quizResult() {
+  const qs = quiz.questions, total = qs.length;
+  const score = Q.answers.reduce((s, a, i) => s + (a === qs[i].a ? 1 : 0), 0);
+  const pct = Math.round((score / total) * 100);
+  topMeta.textContent = "Selesai"; progress.style.width = "100%";
+  const msg = pct >= 80 ? ["Luar biasa! 🎉", "Pemahamanmu tentang anemia dan TTD sudah sangat baik. Bagikan ilmumu ke teman-temanmu!"]
+    : pct >= 60 ? ["Bagus! 👍", "Sebagian besar sudah kamu pahami. Baca lagi materi yang belum tepat agar makin mantap."]
+    : ["Ayo coba lagi 💪", "Tidak apa-apa! Baca kembali materinya, lalu ulangi kuis ini."];
+
+  view.innerHTML = `
+    <div class="quiz-card score">
+      <div class="ring" style="--p:0;--c:${pct >= 60 ? "var(--green)" : "var(--red)"}"><div><b>${score}/${total}</b><span>${pct}%</span></div></div>
+      <h2>${msg[0]}</h2>
+      <p>${msg[1]}</p>
+      <p class="small muted" id="saveInfo">${remote ? "Menyimpan hasil…" : ""}</p>
+      <div class="stack">
+        <button class="btn btn--red btn--block" id="retry">Ulangi Kuis</button>
+        <a class="btn btn--ghost btn--block" href="#/materi">Baca Materi Lagi</a>
+      </div>
+      <div class="review">
+        <p class="small" style="font-weight:700;margin:0 0 4px">Pembahasan</p>
+        ${qs.map((q, i) => { const ok = Q.answers[i] === q.a; return `
+          <details><summary><span class="mark ${ok ? "ok" : "no"}">${ok ? "✓" : "✕"}</span>${i + 1}. ${esc(q.q)}</summary>
+          <p>${ok ? "" : `Jawabanmu: ${esc(q.o[Q.answers[i]] ?? "-")}<br>`}Jawaban benar: <b>${esc(q.o[q.a])}</b><br>${esc(q.e)}</p></details>`; }).join("")}
+      </div>
+    </div>`;
+  const ring = $(".ring", view);
+  requestAnimationFrame(() => animateRing(ring, pct));
+  $("#retry").onclick = () => { Q.step = 0; Q.answers = []; Q.saved = false; quizPage(); scrollTo(0, 0); };
+
+  if (Q.saved) return;
+  Q.saved = true;
+  const r = await submitQuiz({
+    quizId: quiz.id, code: Q.code, score, total,
+    answers: qs.map((q, i) => ({ no: i + 1, pilihan: Q.answers[i], benar: Q.answers[i] === q.a })),
+  });
+  const info = $("#saveInfo");
+  if (info) info.textContent = r.saved ? `Hasil tersimpan. Rata-rata skor ${r.count} percobaan: ${r.avg}%.` : "";
+}
+
+function animateRing(el, to) {
+  const t0 = performance.now();
+  const step = (t) => { const p = Math.min(1, (t - t0) / 900); el.style.setProperty("--p", (to * (1 - Math.pow(1 - p, 3))).toFixed(1)); if (p < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+
+/* ==========================================================
+   Tentang
+   ========================================================== */
+function about() {
+  document.title = `Tentang — ${site.title}`;
+  view.innerHTML = `
+    <p class="eyebrow">Tentang</p>
+    <h1 class="h1">${esc(site.title)}: ${esc(site.subtitle)}</h1>
+    <p class="lead">${esc(site.tagline)}</p>
+    <div class="callout callout--warn"><b>Catatan</b><p>Materi ini untuk edukasi dan tidak menggantikan pemeriksaan atau saran tenaga kesehatan. Periksakan kadar Hb di Puskesmas bila mengalami gejala anemia.</p></div>
+    <h2 class="h2">Sumber rujukan</h2>
+    <ol class="sources">${sources.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>
+    <h2 class="h2">Open source</h2>
+    <p class="muted small">Kode e-zine ini terbuka (lisensi MIT) dan dapat diadaptasi untuk media edukasi lain.</p>`;
+}
+
+router();
