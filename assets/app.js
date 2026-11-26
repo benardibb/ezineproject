@@ -1,40 +1,50 @@
-// Naikkan ?v= setiap kali content.js / db.js berubah agar browser tidak memakai versi lama.
-import { site, materi, videos, quiz, pairGame, sources } from "./content.js?v=2";
-import { store, remote, submitQuiz, quizHistory } from "./db.js?v=2";
+// Naikkan ?v= setiap kali file yang di-import berubah agar browser tidak memakai versi lama.
+import { site, materi, videos, quiz, pairGame, sources } from "./content.js?v=4";
+import { store, remote, submitQuiz, quizHistory } from "./db.js?v=4";
+import { icon, mascot } from "./icons.js?v=4";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-const view = $("#view"), topMeta = $("#topMeta"), progress = $("#progress"), backBtn = $("#backBtn");
+const view = $("#view"), topMeta = $("#topMeta"), progress = $("#progress"), progressWrap = $("#progressWrap"), backBtn = $("#backBtn");
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pad = (n) => String(n).padStart(2, "0");
 
 function toast(msg) {
   const t = $("#toast"); t.textContent = msg; t.classList.add("on");
   clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("on"), 2400);
 }
+function setProgress(pct) {
+  progressWrap.classList.toggle("is-empty", pct == null);
+  progress.style.width = `${pct || 0}%`;
+}
+
+/* ---------- Tab bar ---------- */
+const tabs = [["home", "#/", "home", "Beranda"], ["materi", "#/materi", "book", "Materi"], ["video", "#/video", "video", "Video"], ["kuis", "#/kuis", "quiz", "Kuis"]];
+$("#tabbar").innerHTML = tabs.map(([k, h, ic, l]) => `<a href="${h}" data-tab="${k}" aria-label="${l}">${icon(ic)}<span>${l}</span></a>`).join("");
+backBtn.innerHTML = icon("left");
+backBtn.addEventListener("click", () => (location.hash = "#/materi"));
 
 /* ---------- Status baca ---------- */
 const readSet = () => new Set(store.get("gc:read", []));
-function markRead(id) { const s = readSet(); s.add(id); store.set("gc:read", [...s]); }
+const markRead = (id) => { const s = readSet(); s.add(id); store.set("gc:read", [...s]); };
 const readPct = () => Math.round((readSet().size / materi.length) * 100);
 
 /* ==========================================================
-   Router (hash): #/  #/materi  #/materi/:id  #/video  #/kuis  #/tentang
+   Router: #/  #/materi  #/materi/:id  #/video  #/kuis  #/tentang
    ========================================================== */
 const routes = { "": home, materi: materiList, video: videoPage, kuis: quizPage, tentang: about };
-
 function router() {
   const [, page = "", id] = location.hash.replace(/^#/, "").split("/");
-  const fn = page === "materi" && id ? () => article(id) : routes[page] || home;
-  topMeta.textContent = ""; progress.style.width = "0";
-  backBtn.hidden = !(page === "materi" && id);
-  $$(".tabbar a").forEach((a) => a.setAttribute("aria-current", a.dataset.tab === (page || "home") ? "page" : "false"));
+  const isArticle = page === "materi" && id;
+  topMeta.textContent = ""; setProgress(null);
+  backBtn.hidden = !isArticle;
+  $$("#tabbar a").forEach((a) => a.setAttribute("aria-current", a.dataset.tab === (page || "home") ? "page" : "false"));
   view.style.animation = "none"; void view.offsetWidth; view.style.animation = "";
-  fn();
+  (isArticle ? () => article(id) : routes[page] || home)();
   scrollTo(0, 0);
   view.focus({ preventScroll: true });
 }
 addEventListener("hashchange", router);
-backBtn.addEventListener("click", () => (location.hash = "#/materi"));
 
 /* ==========================================================
    Beranda
@@ -44,55 +54,61 @@ function home() {
   const read = readSet(), pct = readPct();
   const next = materi.find((m) => !read.has(m.id)) || materi[0];
   const weeks = store.get("gc:ttd", [false, false, false, false]);
+  const squiggle = `<svg viewBox="0 0 200 16" preserveAspectRatio="none" aria-hidden="true"><path d="M3 11c30-8 50-8 70-3s45 6 70 0 40-6 54-2" stroke="#161616" stroke-width="4" fill="none" stroke-linecap="round"/></svg>`;
+
   view.innerHTML = `
-    <section class="cover">
-      <p class="eyebrow">${esc(site.edition)}</p>
-      <h1>${esc(site.title)}:<span>${esc(site.subtitle)}</span></h1>
+    <section class="hero">
+      <span class="hero__sticker">e-zine edukasi gizi</span>
+      <h1>Gizi Cerdas, <em>Lawan Anemia${squiggle}</em></h1>
+      ${mascot("happy")}
       <p>${esc(site.tagline)}</p>
-      <a class="btn" href="#/materi/${materi[0].id}">Mulai membaca →</a>
+      <a class="btn" href="#/materi/${read.size ? next.id : materi[0].id}">${read.size ? "Lanjut baca" : "Mulai baca"} ${icon("right")}</a>
     </section>
 
     ${read.size ? `
     <a class="continue" href="#/materi/${next.id}">
       <span class="ring" style="--p:${pct}"><span>${pct}%</span></span>
-      <span class="txt"><b>${pct === 100 ? "Semua materi selesai 🎉" : "Lanjutkan membaca"}</b><span>${pct === 100 ? "Saatnya uji pemahamanmu di kuis." : esc(next.title)}</span></span>
-      <span class="chev" aria-hidden="true">›</span>
+      <span class="txt"><b>${pct === 100 ? "Semua materi kelar!" : `Berikutnya: ${esc(next.title)}`}</b><span>${pct === 100 ? "Waktunya cek pemahaman di kuis." : `${read.size} dari ${materi.length} materi sudah dibaca`}</span></span>
+      ${icon("chev")}
     </a>` : ""}
 
-    <div class="section-head"><h2>Menu Materi</h2><a href="#/materi">Lihat semua</a></div>
-    <div class="menu-grid">
+    <div class="sec-head"><h2>Mau baca apa?</h2><a href="#/materi">Semua materi</a></div>
+    <div class="bento">
       ${materi.map((m, i) => `
-        <a class="tile ${read.has(m.id) ? "is-read" : ""}" href="#/materi/${m.id}">
-          <span class="n">${read.has(m.id) ? "✓" : String(i + 1).padStart(2, "0")}</span>
-          <span class="ico" aria-hidden="true">${m.icon}</span>
+        <a class="tile c-${m.color}" href="#/materi/${m.id}">
+          <span class="top-row">
+            <span class="ic">${icon(m.icon)}</span>
+            ${read.has(m.id) ? `<span class="n done">${icon("check")}dibaca</span>` : `<span class="n">${pad(i + 1)}</span>`}
+          </span>
           <b>${esc(m.title)}</b>
         </a>`).join("")}
     </div>
 
-    <div class="section-head"><h2>Belajar Lebih Lanjut</h2></div>
-    <div class="feature-row">
-      <a class="feature feature--amber" href="#/video"><b>▶ Video Edukasi</b><span>${videos.length} video pilihan</span></a>
-      <a class="feature feature--green" href="#/kuis"><b>✓ Kuis Evaluasi</b><span>${quiz.questions.length} soal + pembahasan</span></a>
+    <div class="sec-head"><h2>Selain baca</h2></div>
+    <div class="duo">
+      <a href="#/video"><span class="ic">${icon("play")}</span><span><b>Nonton video</b><span>${videos.length} video pendek</span></span></a>
+      <a href="#/kuis"><span class="ic">${icon("quiz")}</span><span><b>Ikut kuis</b><span>${quiz.questions.length} soal + pembahasan</span></span></a>
     </div>
 
-    <div class="section-head"><h2>Pengingat TTD Bulan Ini</h2></div>
+    <div class="sec-head"><h2>Catatan TTD-ku</h2></div>
     <div class="tracker">
-      <div class="tracker__head"><b>1 tablet setiap minggu</b><span class="small muted" id="ttdCount">${weeks.filter(Boolean).length}/4 minggu</span></div>
+      <div class="tracker__head"><b>Sudah minum minggu ini?</b><span id="ttdCount">${weeks.filter(Boolean).length}/4</span></div>
       <div class="weeks">
-        ${weeks.map((on, i) => `<button class="week" aria-pressed="${on}" data-i="${i}"><span class="pill" aria-hidden="true">💊</span>Minggu ${i + 1}</button>`).join("")}
+        ${weeks.map((on, i) => `<button class="week" aria-pressed="${on}" data-i="${i}">${icon("pill")}Mg ${i + 1}</button>`).join("")}
       </div>
-      <p class="small muted" style="margin:12px 0 0">Ketuk setelah kamu minum TTD. Tersimpan di perangkat ini.</p>
+      <p>Ketuk setelah minum TTD. Catatan ini hanya tersimpan di HP kamu.</p>
     </div>
 
-    <p class="small muted" style="text-align:center;margin-top:28px"><a href="#/tentang">Tentang & sumber materi</a></p>`;
+    <p class="foot"><a href="#/tentang">Tentang e-zine & sumber materi</a></p>`;
 
   $$(".week", view).forEach((b) => b.addEventListener("click", () => {
-    weeks[b.dataset.i] = !weeks[b.dataset.i];
-    b.setAttribute("aria-pressed", weeks[b.dataset.i]);
+    const i = +b.dataset.i;
+    weeks[i] = !weeks[i];
+    b.setAttribute("aria-pressed", String(weeks[i]));
     store.set("gc:ttd", weeks);
     const n = weeks.filter(Boolean).length;
-    $("#ttdCount").textContent = `${n}/4 minggu`;
-    if (weeks[b.dataset.i]) toast(n === 4 ? "Hebat! Sebulan penuh rutin minum TTD 🎉" : "Tercatat. Terus pertahankan!");
+    $("#ttdCount").textContent = `${n}/4`;
+    if (weeks[i]) toast(n === 4 ? "Sebulan penuh rutin. Keren!" : "Tercatat. Pertahankan ya!");
   }));
 }
 
@@ -100,20 +116,19 @@ function home() {
    Daftar materi
    ========================================================== */
 function materiList() {
-  document.title = `Materi — ${site.title}`;
+  document.title = `Materi · ${site.title}`;
   const read = readSet();
   topMeta.textContent = `${read.size}/${materi.length} dibaca`;
-  progress.style.width = `${readPct()}%`;
+  setProgress(readPct());
   view.innerHTML = `
-    <p class="eyebrow">Materi Edukasi</p>
-    <h1 class="h1">Pilih materi</h1>
-    <p class="lead">Baca berurutan atau pilih topik yang ingin kamu pelajari.</p>
+    <h1 class="h1">Materi</h1>
+    <p class="lead">Baca urut dari awal, atau loncat ke topik yang bikin kamu penasaran.</p>
     <div class="list">
       ${materi.map((m, i) => `
-        <a class="row" href="#/materi/${m.id}">
-          <span class="ico" aria-hidden="true">${m.icon}</span>
-          <span class="txt"><b>${i + 1}. ${esc(m.title)}</b><span>${esc(m.summary)}</span></span>
-          ${read.has(m.id) ? '<span class="done">✓</span>' : '<span class="chev" aria-hidden="true">›</span>'}
+        <a class="row c-${m.color}" href="#/materi/${m.id}">
+          <span class="ic">${icon(m.icon)}</span>
+          <span class="txt"><b>${esc(m.title)}</b><span>${esc(m.summary)}</span></span>
+          <span class="end ${read.has(m.id) ? "done" : ""}">${icon(read.has(m.id) ? "check" : "chev")}</span>
         </a>`).join("")}
     </div>`;
 }
@@ -125,33 +140,32 @@ function article(id) {
   const i = materi.findIndex((m) => m.id === id);
   if (i < 0) { location.hash = "#/materi"; return; }
   const m = materi[i], prev = materi[i - 1], next = materi[i + 1];
-  document.title = `${m.title} — ${site.title}`;
-  topMeta.textContent = `${i + 1} / ${materi.length}`;
-  progress.style.width = `${((i + 1) / materi.length) * 100}%`;
+  document.title = `${m.title} · ${site.title}`;
+  topMeta.textContent = `${i + 1} dari ${materi.length}`;
+  setProgress(((i + 1) / materi.length) * 100);
   markRead(m.id);
 
   view.innerHTML = `
     <article class="article">
-      <header class="article-head">
-        <div class="ico" aria-hidden="true">${m.icon}</div>
-        <p class="eyebrow">Materi ${i + 1}</p>
+      <header class="a-head c-${m.color}">
+        <span class="num" aria-hidden="true">${pad(i + 1)}</span>
+        <span class="ic">${icon(m.icon)}</span>
         <h1 class="h1">${esc(m.title)}</h1>
-        <p class="lead" style="margin:0">${esc(m.summary)}</p>
+        <p>${esc(m.summary)}</p>
       </header>
-      ${m.blocks.map(block).join("")}
+      ${m.blocks.map((b) => block(b, m)).join("")}
     </article>
-    <nav class="pager" aria-label="Navigasi materi">
-      ${prev ? `<a class="prev" href="#/materi/${prev.id}"><small>← Sebelumnya</small><b>${esc(prev.title)}</b></a>` : ""}
+    <nav class="pager" aria-label="Pindah materi">
+      ${prev ? `<a href="#/materi/${prev.id}"><small>${icon("left")}Sebelumnya</small><b>${esc(prev.title)}</b></a>` : ""}
       ${next
-        ? `<a class="next" href="#/materi/${next.id}"><small>Selanjutnya →</small><b>${esc(next.title)}</b></a>`
-        : `<a class="next" href="#/kuis"><small>Selesai membaca →</small><b>Kerjakan Kuis</b></a>`}
+        ? `<a class="next" href="#/materi/${next.id}"><small>Selanjutnya${icon("right")}</small><b>${esc(next.title)}</b></a>`
+        : `<a class="next" href="#/kuis"><small>Udah kelar${icon("right")}</small><b>Kerjakan kuis</b></a>`}
     </nav>
-    <p class="swipe-hint">Geser kiri/kanan untuk berpindah halaman</p>`;
+    <p class="swipe-hint">Geser kiri atau kanan buat pindah halaman</p>`;
   bindBlocks();
 
-  // Geser untuk berpindah halaman
-  let x0 = null, y0 = null;
-  view.ontouchstart = (e) => { if (e.target.closest(".flip, .pair, input")) return; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; };
+  let x0 = null, y0 = 0;
+  view.ontouchstart = (e) => { if (e.target.closest(".flip, .pair, .check")) { x0 = null; return; } x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; };
   view.ontouchend = (e) => {
     if (x0 == null) return;
     const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
@@ -161,27 +175,28 @@ function article(id) {
   };
 }
 
-function block(b) {
+function block(b, m) {
   switch (b.t) {
     case "p": return `<p>${b.text}</p>`;
     case "list": return `<ul class="bullets">${b.items.map((x) => `<li>${x}</li>`).join("")}</ul>`;
-    case "callout": return `<div class="callout callout--${b.tone || "info"}"><b>${b.title}</b><p>${b.text}</p></div>`;
-    case "grid": return `<div class="cards ${b.compact ? "compact" : ""}">${b.items.map((c) => `
-      <div class="card"><div class="ico" aria-hidden="true">${c.icon}</div><b>${c.title}</b>${c.text ? `<span>${c.text}</span>` : ""}</div>`).join("")}</div>`;
+    case "callout": return `<div class="callout ${b.tone === "warn" ? "callout--warn" : ""}">${icon(b.tone === "warn" ? "alert" : "info")}<div><b>${b.title}</b><p>${b.text}</p></div></div>`;
+    case "grid": return `<div class="cards">${b.items.map((c) => `
+      <div class="card"><span class="ic">${icon(c.icon)}</span><b>${c.title}</b>${c.text ? `<span>${c.text}</span>` : ""}</div>`).join("")}</div>`;
+    case "letters": return `<div class="letters c-${m.color}">${b.items.map((w) => `<div><b>${w[0]}</b><span>${w}</span></div>`).join("")}</div>`;
     case "stat": return `<div class="stat"><div class="v">${b.value}</div><div><div class="u">${b.unit}</div><p>${b.text}</p></div></div>`;
-    case "steps": return `<ol class="steps">${b.items.map((s) => `<li><b>${s.title}</b><span>${s.text}</span></li>`).join("")}</ol>`;
+    case "steps": return `<ol class="steps">${b.items.map((s) => `<li><div><b>${s.title}</b><span>${s.text}</span></div></li>`).join("")}</ol>`;
     case "dodont": return `<div class="dodont">
-      <div class="do"><h3>Lakukan</h3><ul>${b.do.map((x) => `<li>${x}</li>`).join("")}</ul></div>
-      <div class="dont"><h3>Hindari</h3><ul>${b.dont.map((x) => `<li>${x}</li>`).join("")}</ul></div></div>`;
-    case "flip": return `<p class="flips-title">Mitos atau fakta? Ketuk kartu untuk membalik.</p><div class="flips">${b.items.map((f) => `
+      <div class="do"><h3>Lakukan</h3><ul>${b.do.map((x) => `<li>${icon("check")}<span>${x}</span></li>`).join("")}</ul></div>
+      <div class="dont"><h3>Hindari</h3><ul>${b.dont.map((x) => `<li>${icon("x")}<span>${x}</span></li>`).join("")}</ul></div></div>`;
+    case "flip": return `<div class="flips-head">${icon("flip")}Mitos atau fakta?</div><div class="flips">${b.items.map((f) => `
       <button class="flip" aria-pressed="false"><span class="flip__in">
-        <span class="flip__face flip__front"><small>Mitos</small>${f.front.replace(/^Mitos:\s*/, "")}</span>
-        <span class="flip__face flip__back"><small>Fakta</small>${f.back.replace(/^Fakta:\s*/, "")}</span>
+        <span class="flip__face flip__front"><span class="tag tag--myth">Mitos</span><strong>“${f.front}”</strong><span class="flip__hint">Ketuk untuk lihat faktanya</span></span>
+        <span class="flip__face flip__back"><span class="tag tag--fact">Fakta</span>${f.back}</span>
       </span></button>`).join("")}</div>`;
     case "check": return `<div class="check" data-result="${esc(b.result)}"><h3>${b.title}</h3>${b.items.map((x) => `
       <label><input type="checkbox" />${x}</label>`).join("")}<p class="res" hidden></p></div>`;
     case "pair": return `<div class="pair"><h3>${pairGame.title}</h3><p>${pairGame.intro}</p>
-      <div class="pair__opts">${pairGame.options.map((o, i) => `<button data-i="${i}"><span class="e" aria-hidden="true">${o.icon}</span>${o.label}</button>`).join("")}</div>
+      <div class="pair__opts">${pairGame.options.map((o, i) => `<button data-i="${i}">${icon(o.icon)}${o.label}</button>`).join("")}</div>
       <p class="pair__note" aria-live="polite"></p></div>`;
     case "video": { const v = videos.find((x) => x.id === b.id); return v ? videoCard(v) : ""; }
     default: return "";
@@ -189,10 +204,10 @@ function block(b) {
 }
 
 function videoCard(v) {
-  return `<a class="vcard" href="${esc(v.url)}" target="_blank" rel="noopener">
-    <span class="thumb" aria-hidden="true"></span>
-    <span class="txt"><b>${esc(v.title)}</b><span>${esc(v.duration)} · buka tautan</span></span>
-    <span class="ext" aria-hidden="true">↗</span></a>`;
+  return `<a class="vcard c-${v.color}" href="${esc(v.url)}" target="_blank" rel="noopener">
+    <span class="thumb"><span>${icon("play")}</span></span>
+    <span class="txt"><b>${esc(v.title)}</b><span>Tonton video</span></span>
+    ${icon("ext")}</a>`;
 }
 
 function bindBlocks() {
@@ -218,21 +233,25 @@ function bindBlocks() {
    Video
    ========================================================== */
 function videoPage() {
-  document.title = `Video — ${site.title}`;
+  document.title = `Video · ${site.title}`;
   view.innerHTML = `
-    <p class="eyebrow">Video Edukasi</p>
-    <h1 class="h1">Tonton & pahami</h1>
-    <p class="lead">Ketuk video untuk membukanya melalui tautan.</p>
-    <div class="vlist">${videos.map(videoCard).join("")}</div>`;
+    <h1 class="h1">Video</h1>
+    <p class="lead">Lagi males baca? Tonton videonya aja dulu.</p>
+    <div class="vlist">${videos.map((v, i) => `
+      <a class="vbig c-${v.color}" href="${esc(v.url)}" target="_blank" rel="noopener">
+        <span class="thumb"><small>Video ${i + 1}</small><span>${icon("play")}</span></span>
+        <span class="meta"><b>${esc(v.title)}</b>${icon("ext")}</span>
+      </a>`).join("")}</div>`;
 }
 
 /* ==========================================================
    Kuis evaluasi
    ========================================================== */
-const Q = { step: -1, answers: [], code: "" };
+const Q = { step: -1, answers: [], code: "", saved: false };
+const reset = () => { Q.step = 0; Q.answers = []; Q.saved = false; };
 
 function quizPage() {
-  document.title = `Kuis — ${site.title}`;
+  document.title = `Kuis · ${site.title}`;
   if (Q.step < 0) return quizIntro();
   if (Q.step >= quiz.questions.length) return quizResult();
   quizQuestion();
@@ -241,46 +260,49 @@ function quizPage() {
 function quizIntro() {
   const hist = quizHistory(quiz.id), last = hist[hist.length - 1];
   view.innerHTML = `
-    <p class="eyebrow">${esc(quiz.title)}</p>
-    <h1 class="h1">Uji pemahamanmu</h1>
+    <h1 class="h1">Kuis</h1>
     <p class="lead">${esc(quiz.intro)}</p>
-    <div class="quiz-card">
-      ${readPct() < 100 ? `<div class="callout callout--warn" style="margin-top:0"><b>Belum selesai membaca?</b><p>Kamu baru membaca ${readSet().size} dari ${materi.length} materi. Kamu tetap bisa mulai kuis sekarang.</p></div>` : ""}
-      ${quiz.askCode ? `<div class="field">
-        <label for="code">Kode responden <span class="muted">(opsional)</span></label>
-        <input id="code" maxlength="40" autocomplete="off" placeholder="Contoh: R-012" value="${esc(Q.code)}" />
-        <small>Diisi jika diminta oleh peneliti/guru. Jangan isi nama lengkap.</small>
-      </div>` : ""}
-      ${last ? `<p class="small muted">Skor terakhirmu: <b>${last.score}/${last.total}</b></p>` : ""}
-      <button class="btn btn--red btn--block" id="start">Mulai Kuis</button>
-    </div>`;
-  $("#start").onclick = () => { Q.code = $("#code")?.value.trim() || ""; Q.step = 0; Q.answers = []; Q.saved = false; quizPage(); };
+    <div class="intro-card">
+      <div class="facts"><span>${quiz.questions.length} soal</span><span>± 5 menit</span><span>Ada pembahasan</span></div>
+      <p>Santai aja, ini bukan ujian. Yang penting paham.</p>
+      ${mascot("wow")}
+    </div>
+    ${readPct() < 100 ? `<div class="notice">${icon("info")}<span>Kamu baru baca ${readSet().size} dari ${materi.length} materi. Boleh langsung kuis, tapi baca dulu biar makin lancar.</span></div>` : ""}
+    ${quiz.askCode ? `<div class="field">
+      <label for="code">Kode responden <span class="muted" style="font-weight:500">(opsional)</span></label>
+      <input id="code" maxlength="40" autocomplete="off" placeholder="Contoh: R-012" value="${esc(Q.code)}" />
+      <small>Isi kalau diminta peneliti atau guru. Jangan isi nama lengkap.</small>
+    </div>` : ""}
+    ${last ? `<p class="small muted">Skor terakhirmu: <b style="color:var(--ink)">${last.score}/${last.total}</b></p>` : ""}
+    <button class="btn btn--block" id="start">Mulai kuis ${icon("right")}</button>`;
+  $("#start").onclick = () => { Q.code = $("#code")?.value.trim() || ""; reset(); quizPage(); };
 }
 
 function quizQuestion() {
   const n = Q.step, item = quiz.questions[n], total = quiz.questions.length;
-  topMeta.textContent = `Soal ${n + 1} / ${total}`;
-  progress.style.width = `${(n / total) * 100}%`;
+  topMeta.textContent = `Soal ${n + 1} dari ${total}`;
   view.innerHTML = `
-    <div class="quiz-card">
-      <div class="qbar">${quiz.questions.map((_, i) => `<i class="${i < n ? (Q.answers[i] === quiz.questions[i].a ? "ok" : "no") : i === n ? "on" : ""}"></i>`).join("")}</div>
-      <div class="qmeta">Soal ${n + 1} dari ${total}</div>
-      <p class="qtext">${esc(item.q)}</p>
-      <div class="opts">${item.o.map((o, i) => `<button class="opt" data-i="${i}"><span class="k">${"ABCD"[i]}</span>${esc(o)}</button>`).join("")}</div>
-      <div id="explain"></div>
-      <div class="quiz-actions" id="actions"></div>
-    </div>`;
+    <div class="q-dots">${quiz.questions.map((_, i) => `<i class="${i < n ? (Q.answers[i] === quiz.questions[i].a ? "ok" : "no") : i === n ? "on" : ""}"></i>`).join("")}</div>
+    <div class="q-num">${pad(n + 1)} / ${total}</div>
+    <p class="q-text">${esc(item.q)}</p>
+    <div class="opts">${item.o.map((o, i) => `<button class="opt" data-i="${i}"><span class="k">${"ABCD"[i]}</span>${esc(o)}</button>`).join("")}</div>
+    <div id="explain"></div>
+    <div class="q-actions" id="actions"></div>`;
   $$(".opt", view).forEach((b) => b.addEventListener("click", () => {
     const pick = +b.dataset.i, ok = pick === item.a;
     Q.answers[n] = pick;
-    $$(".opt", view).forEach((x) => { x.disabled = true; if (+x.dataset.i === item.a) x.classList.add("correct"); });
-    if (!ok) b.classList.add("wrong");
-    $(".qbar i.on", view).className = ok ? "ok" : "no";
-    $("#explain").innerHTML = `<div class="explain ${ok ? "ok" : "no"}"><b>${ok ? "Benar!" : "Kurang tepat."}</b>${esc(item.e)}</div>`;
+    $$(".opt", view).forEach((x) => {
+      x.disabled = true;
+      const xi = +x.dataset.i;
+      if (xi === item.a) x.classList.add("correct");
+      else if (xi === pick) x.classList.add("wrong");
+      else x.classList.add("dim");
+    });
+    $(".q-dots i.on", view).className = ok ? "ok" : "no";
+    $("#explain").innerHTML = `<div class="explain ${ok ? "ok" : "no"}">${icon(ok ? "check" : "info")}<div><b>${ok ? "Betul!" : "Belum tepat"}</b>${esc(item.e)}</div></div>`;
     const last = n === total - 1;
-    $("#actions").innerHTML = `<button class="btn btn--block" id="nextQ">${last ? "Lihat Hasil" : "Soal Berikutnya →"}</button>`;
+    $("#actions").innerHTML = `<button class="btn btn--block" id="nextQ">${last ? "Lihat hasil" : "Lanjut"} ${icon("right")}</button>`;
     $("#nextQ").onclick = () => { Q.step++; quizPage(); scrollTo(0, 0); };
-    $("#nextQ").focus({ preventScroll: true });
     $("#actions").scrollIntoView({ behavior: "smooth", block: "nearest" });
   }));
 }
@@ -289,31 +311,34 @@ async function quizResult() {
   const qs = quiz.questions, total = qs.length;
   const score = Q.answers.reduce((s, a, i) => s + (a === qs[i].a ? 1 : 0), 0);
   const pct = Math.round((score / total) * 100);
-  topMeta.textContent = "Selesai"; progress.style.width = "100%";
-  const msg = pct >= 80 ? ["Luar biasa! 🎉", "Pemahamanmu tentang anemia dan TTD sudah sangat baik. Bagikan ilmumu ke teman-temanmu!"]
-    : pct >= 60 ? ["Bagus! 👍", "Sebagian besar sudah kamu pahami. Baca lagi materi yang belum tepat agar makin mantap."]
-    : ["Ayo coba lagi 💪", "Tidak apa-apa! Baca kembali materinya, lalu ulangi kuis ini."];
+  topMeta.textContent = "Selesai";
+  const [mood, title, text, color] = pct >= 80
+    ? ["happy", "Mantap, kamu paham banget!", "Ilmunya jangan disimpan sendiri. Ajak temanmu rutin minum TTD juga.", "var(--mint-ink)"]
+    : pct >= 60
+      ? ["happy", "Udah oke nih!", "Sebagian besar sudah kamu kuasai. Cek pembahasan di bawah biar makin mantap.", "var(--sky-ink)"]
+      : ["meh", "Gapapa, coba lagi yuk", "Baca ulang materinya pelan-pelan, terus ulangi kuisnya. Pasti bisa.", "var(--red)"];
 
   view.innerHTML = `
-    <div class="quiz-card score">
-      <div class="ring" style="--p:0;--c:${pct >= 60 ? "var(--green)" : "var(--red)"}"><div><b>${score}/${total}</b><span>${pct}%</span></div></div>
-      <h2>${msg[0]}</h2>
-      <p>${msg[1]}</p>
-      <p class="small muted" id="saveInfo">${remote ? "Menyimpan hasil…" : ""}</p>
+    <div class="result">
+      ${mascot(mood)}
+      <div class="big">${score}<small>/${total}</small></div>
+      <div class="bar"><span style="background:${color}"></span></div>
+      <h2>${title}</h2>
+      <p>${text}</p>
       <div class="stack">
-        <button class="btn btn--red btn--block" id="retry">Ulangi Kuis</button>
-        <a class="btn btn--ghost btn--block" href="#/materi">Baca Materi Lagi</a>
+        <button class="btn" id="retry">Ulangi kuis</button>
+        <a class="btn btn--soft" href="#/materi">Baca materi lagi</a>
       </div>
+      <p class="small muted" id="saveInfo" style="margin-top:14px">${remote ? "Menyimpan hasil…" : ""}</p>
       <div class="review">
-        <p class="small" style="font-weight:700;margin:0 0 4px">Pembahasan</p>
+        <h3>Pembahasan</h3>
         ${qs.map((q, i) => { const ok = Q.answers[i] === q.a; return `
-          <details><summary><span class="mark ${ok ? "ok" : "no"}">${ok ? "✓" : "✕"}</span>${i + 1}. ${esc(q.q)}</summary>
+          <details><summary><span class="${ok ? "ok" : "no"}">${icon(ok ? "check" : "x")}</span>${i + 1}. ${esc(q.q)}</summary>
           <p>${ok ? "" : `Jawabanmu: ${esc(q.o[Q.answers[i]] ?? "-")}<br>`}Jawaban benar: <b>${esc(q.o[q.a])}</b><br>${esc(q.e)}</p></details>`; }).join("")}
       </div>
     </div>`;
-  const ring = $(".ring", view);
-  requestAnimationFrame(() => animateRing(ring, pct));
-  $("#retry").onclick = () => { Q.step = 0; Q.answers = []; Q.saved = false; quizPage(); scrollTo(0, 0); };
+  requestAnimationFrame(() => requestAnimationFrame(() => ($(".bar span", view).style.width = `${pct}%`)));
+  $("#retry").onclick = () => { reset(); quizPage(); scrollTo(0, 0); };
 
   if (Q.saved) return;
   Q.saved = true;
@@ -322,29 +347,22 @@ async function quizResult() {
     answers: qs.map((q, i) => ({ no: i + 1, pilihan: Q.answers[i], benar: Q.answers[i] === q.a })),
   });
   const info = $("#saveInfo");
-  if (info) info.textContent = r.saved ? `Hasil tersimpan. Rata-rata skor ${r.count} percobaan: ${r.avg}%.` : "";
-}
-
-function animateRing(el, to) {
-  const t0 = performance.now();
-  const step = (t) => { const p = Math.min(1, (t - t0) / 900); el.style.setProperty("--p", (to * (1 - Math.pow(1 - p, 3))).toFixed(1)); if (p < 1) requestAnimationFrame(step); };
-  requestAnimationFrame(step);
+  if (info) info.textContent = r.saved ? `Hasil tersimpan. Rata-rata skor semua pembaca: ${r.avg}%` : "";
 }
 
 /* ==========================================================
    Tentang
    ========================================================== */
 function about() {
-  document.title = `Tentang — ${site.title}`;
+  document.title = `Tentang · ${site.title}`;
   view.innerHTML = `
-    <p class="eyebrow">Tentang</p>
-    <h1 class="h1">${esc(site.title)}: ${esc(site.subtitle)}</h1>
-    <p class="lead">${esc(site.tagline)}</p>
-    <div class="callout callout--warn"><b>Catatan</b><p>Materi ini untuk edukasi dan tidak menggantikan pemeriksaan atau saran tenaga kesehatan. Periksakan kadar Hb di Puskesmas bila mengalami gejala anemia.</p></div>
+    <h1 class="h1">Tentang</h1>
+    <p class="lead">${esc(site.title)}: ${esc(site.subtitle)} adalah media edukasi gizi berbentuk e-zine interaktif untuk remaja.</p>
+    <div class="callout callout--warn">${icon("alert")}<div><b>Catatan</b><p>Materi ini untuk edukasi dan tidak menggantikan pemeriksaan tenaga kesehatan. Kalau ada gejala anemia, cek Hb di Puskesmas ya.</p></div></div>
     <h2 class="h2">Sumber rujukan</h2>
     <ol class="sources">${sources.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>
     <h2 class="h2">Open source</h2>
-    <p class="muted small">Kode e-zine ini terbuka (lisensi MIT) dan dapat diadaptasi untuk media edukasi lain.</p>`;
+    <p class="muted">Kode e-zine ini terbuka (lisensi MIT) dan boleh diadaptasi untuk media edukasi lain.</p>`;
 }
 
 router();
