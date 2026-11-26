@@ -1,5 +1,6 @@
-import { site, materi, videos, quiz, pairGame, sources } from "./content.js";
-import { store, remote, submitQuiz, quizHistory } from "./db.js";
+// Naikkan ?v= setiap kali content.js / db.js berubah agar browser tidak memakai versi lama.
+import { site, materi, videos, quiz, pairGame, sources } from "./content.js?v=2";
+import { store, remote, submitQuiz, quizHistory } from "./db.js?v=2";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
