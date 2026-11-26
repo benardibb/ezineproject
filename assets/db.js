@@ -1,5 +1,5 @@
 // Lapisan data: Supabase (REST RPC) dengan cadangan localStorage.
-import { SUPABASE_URL, SUPABASE_KEY } from "./config.js?v=6";
+import { SUPABASE_URL, SUPABASE_KEY } from "./config.js?v=7";
 
 export const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },

@@ -305,6 +305,56 @@ b, strong { font-weight: 650; }
 }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 
+/* ==========================================================
+   Responsif: tablet & desktop
+   ========================================================== */
+@media (min-width: 640px) {
+  .cards.n3 { grid-template-columns: repeat(3, 1fr); }
+  .dodont { grid-template-columns: 1fr 1fr; gap: 32px; }
+  .pair__opts { grid-template-columns: repeat(6, 1fr); }
+}
+
+@media (min-width: 960px) {
+  :root { --wide: 1080px; --gutter: max(32px, calc((100vw - var(--wide)) / 2)); }
+  body { font-size: 17px; }
+
+  /* Navigasi pindah ke atas */
+  .top { height: 64px; padding: 0 var(--gutter); }
+  .brand { font-size: 17px; }
+  .top__meta { margin-left: 0; margin-right: auto; padding-left: 16px; }
+  .tabbar {
+    top: 0; bottom: auto; left: auto; right: var(--gutter); height: 64px; padding: 0;
+    background: none; backdrop-filter: none; -webkit-backdrop-filter: none; border: 0; gap: 4px; align-items: center;
+  }
+  .tabbar a { flex: none; max-width: none; height: 38px; padding: 0 14px; flex-direction: row; gap: 7px; font-size: 14.5px; border-radius: 10px; color: var(--muted); }
+  .tabbar a:hover { color: var(--ink); background: var(--soft); }
+  .tabbar a[aria-current="page"] { color: var(--ink); background: var(--soft); }
+  .tabbar .i { width: 18px; height: 18px; }
+
+  /* Lebar konten per halaman */
+  #view { padding: 56px 32px 96px; }
+  #view[data-page="home"] { max-width: var(--wide); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 80px; align-items: start; }
+  #view[data-page="materi"], #view[data-page="video"] { max-width: 760px; }
+  #view[data-page="article"], #view[data-page="kuis"], #view[data-page="tentang"] { max-width: 700px; }
+
+  /* Beranda dua kolom */
+  .home-left { position: sticky; top: 120px; }
+  .hero { padding-top: 0; }
+  .hero h1 { font-size: 64px; }
+  .hero p { font-size: 18px; }
+  .label--first { margin-top: 0; }
+  .toc a { padding: 18px 8px; border-radius: 0; }
+
+  .h1 { font-size: 42px; }
+  .a-head { margin-bottom: 36px; }
+  .pager a { padding: 18px 20px; }
+  .pager a:hover { border-color: var(--ink); }
+  .pager .next:hover { opacity: .9; }
+  .swipe-hint { display: none; }
+  .links a:hover, .resume:hover, .vrow:hover, .card:hover { border-color: #cfcfcf; }
+  .toast { bottom: 28px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

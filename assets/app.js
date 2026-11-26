@@ -1,7 +1,7 @@
 // Naikkan ?v= setiap kali file yang di-import berubah agar browser tidak memakai versi lama.
-import { site, materi, videos, quiz, pairGame, sources } from "./content.js?v=6";
-import { store, remote, submitQuiz, quizHistory } from "./db.js?v=6";
-import { icon } from "./icons.js?v=6";
+import { site, materi, videos, quiz, pairGame, sources } from "./content.js?v=7";
+import { store, remote, submitQuiz, quizHistory } from "./db.js?v=7";
+import { icon } from "./icons.js?v=7";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -38,6 +38,7 @@ function router() {
   const isArticle = page === "materi" && id;
   topMeta.textContent = ""; setProgress(null);
   backBtn.hidden = !isArticle;
+  view.dataset.page = isArticle ? "article" : (routes[page] ? page || "home" : "home");
   $$("#tabbar a").forEach((a) => a.setAttribute("aria-current", a.dataset.tab === (page || "home") ? "page" : "false"));
   view.style.animation = "none"; void view.offsetWidth; view.style.animation = "";
   (isArticle ? () => article(id) : routes[page] || home)();
@@ -65,6 +66,7 @@ function home() {
   const weeks = store.get("gc:ttd", [false, false, false, false]);
 
   view.innerHTML = `
+    <div class="home-left">
     <section class="hero">
       <h1>Gizi Cerdas,<br><span>Lawan Anemia</span></h1>
       <p>${esc(site.tagline)}</p>
@@ -80,8 +82,10 @@ function home() {
       </span>
       ${icon("chev")}
     </a>` : ""}
+    </div>
 
-    <p class="label">Materi</p>
+    <div class="home-right">
+    <p class="label label--first">Materi</p>
     ${tocList(read)}
 
     <p class="label">Lainnya</p>
@@ -99,7 +103,8 @@ function home() {
       <p>Ketuk setelah minum TTD. Tersimpan di HP kamu.</p>
     </div>
 
-    <p class="foot"><a href="#/tentang">Tentang & sumber materi</a></p>`;
+    <p class="foot"><a href="#/tentang">Tentang & sumber materi</a></p>
+    </div>`;
 
   $$(".week", view).forEach((b) => b.addEventListener("click", () => {
     const i = +b.dataset.i;
@@ -173,7 +178,7 @@ function block(b) {
     case "p": return `<p>${b.text}</p>`;
     case "list": return `<ul class="bullets">${b.items.map((x) => `<li>${x}</li>`).join("")}</ul>`;
     case "callout": return `<div class="callout">${icon(b.tone === "warn" ? "alert" : "info")}<div><b>${b.title}</b><p>${b.text}</p></div></div>`;
-    case "grid": return `<div class="cards">${b.items.map((c) => `
+    case "grid": return `<div class="cards${b.items.length === 3 ? " n3" : ""}">${b.items.map((c) => `
       <div class="card">${icon(c.icon)}<b>${c.title}</b>${c.text ? `<span>${c.text}</span>` : ""}</div>`).join("")}</div>`;
     case "letters": return `<div class="letters">${b.items.map((w) => `<div><b>${w[0]}</b><span>${w}</span></div>`).join("")}</div>`;
     case "stat": return `<div class="stat"><div class="v">${b.value}</div><div><div class="u">${b.unit}</div><p>${b.text}</p></div></div>`;
