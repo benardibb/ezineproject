@@ -14,5 +14,5 @@
 // Jika dibiarkan kosong, situs tetap berjalan dalam "mode lokal"
 // (data hanya tersimpan di peramban pengunjung).
 // ==========================================================
-export const SUPABASE_URL = "";
-export const SUPABASE_KEY = "";
+export const SUPABASE_URL = "https://grthswmzhrvvwfvkogpf.supabase.co";
+export const SUPABASE_KEY = "sb_publishable_CwEc4orTUHzVZtWXewh89Q_e97FfPzT";

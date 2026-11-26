@@ -1,7 +1,7 @@
 // Naikkan ?v= setiap kali file yang di-import berubah agar browser tidak memakai versi lama.
-import { site, materi, videos, quiz, pairGame, sources } from "./content.js?v=4";
-import { store, remote, submitQuiz, quizHistory } from "./db.js?v=4";
-import { icon, mascot } from "./icons.js?v=4";
+import { site, materi, videos, quiz, pairGame, sources } from "./content.js?v=5";
+import { store, remote, submitQuiz, quizHistory } from "./db.js?v=5";
+import { icon, mascot } from "./icons.js?v=5";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
